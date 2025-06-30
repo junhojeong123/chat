@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat Test</title>
+</head>
+<body>
+  <h1>WebSocket Chat Test</h1>
+
+  <div>
+    <label>User ID: <input id="userId" /></label>
+    <label>Nickname: <input id="nickname" /></label>
+    <button id="connect">Connect</button>
+  </div>
+
+  <div>
+    <label>Room Code: <input id="roomCode" /></label>
+    <button id="join">Join Room</button>
+  </div>
+
+  <div>
+    <label>Message: <input id="message" /></label>
+    <button id="send">Send</button>
+  </div>
+
+  <div id="log" style="margin-top:20px; border:1px solid #ccc; padding:10px; height:300px; overflow:auto;"></div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    let socket;
+
+    document.getElementById('connect').addEventListener('click', () => {
+      const userId = document.getElementById('userId').value;
+      const nickname = document.getElementById('nickname').value;
+      
+      socket = io('http://localhost:3000', {
+        auth: {
+          userId,
+          nickname
+        }
+      });
+
+      socket.on('connect', () => log('Connected to server'));
+      socket.on('disconnect', () => log('Disconnected'));
+      socket.on('joined_room', (data) => log('Joined room: ' + data.roomCode));
+      socket.on('user_joined', (data) => log(data.nickname + ' joined the room'));
+      socket.on('receive_message', (data) => log(data.nickname + ': ' + data.message));
+      socket.on('error', (err) => log('Error: ' + err.reason));
+    });
+
+    document.getElementById('join').addEventListener('click', () => {
+      const roomCode = document.getElementById('roomCode').value;
+      socket.emit('join_room', { roomCode });
+    });
+
+    document.getElementById('send').addEventListener('click', () => {
+      const roomCode = document.getElementById('roomCode').value;
+      const message = document.getElementById('message').value;
+      socket.emit('send_message', { roomCode, message });
+    });
+
+    function log(msg) {
+      const logDiv = document.getElementById('log');
+      logDiv.innerHTML += '<div>' + msg + '</div>';
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+  </script>
+</body>
+</html>
