@@ -1,68 +1,119 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>Chat Test</title>
+  <title>WebSocket 채팅 테스트</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js "></script>
 </head>
 <body>
-  <h1>WebSocket Chat Test</h1>
+  <h2>채팅 테스트</h2>
 
-  <div>
-    <label>User ID: <input id="userId" /></label>
-    <label>Nickname: <input id="nickname" /></label>
-    <button id="connect">Connect</button>
-  </div>
+  <label>
+    유저 ID:
+    <input type="text" id="userId" value="user123" />
+  </label><br />
+  <label>
+    닉네임:
+    <input type="text" id="nickname" value="홍길동" />
+  </label><br />
+  <label>
+    방 코드:
+    <input type="text" id="roomCode" value="room1234" />
+  </label><br />
 
-  <div>
-    <label>Room Code: <input id="roomCode" /></label>
-    <button id="join">Join Room</button>
-  </div>
+  <button onclick="connectSocket()">소켓 연결</button>
+  <button onclick="joinRoom()">방 입장</button><br /><br />
 
-  <div>
-    <label>Message: <input id="message" /></label>
-    <button id="send">Send</button>
-  </div>
+  <input type="text" id="messageInput" placeholder="메시지 입력" />
+  <button onclick="sendMessage()">메시지 보내기</button>
 
-  <div id="log" style="margin-top:20px; border:1px solid #ccc; padding:10px; height:300px; overflow:auto;"></div>
+  <h3>채팅 로그</h3>
+  <div id="chatLog" style="border:1px solid #ccc; padding:10px; width:400px; height:300px; overflow-y:scroll;"></div>
 
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
     let socket;
 
-    document.getElementById('connect').addEventListener('click', () => {
+    function connectSocket() {
       const userId = document.getElementById('userId').value;
       const nickname = document.getElementById('nickname').value;
-      
+
       socket = io('http://localhost:3000', {
         auth: {
           userId,
-          nickname
-        }
+          nickname,
+        },
       });
 
-      socket.on('connect', () => log('Connected to server'));
-      socket.on('disconnect', () => log('Disconnected'));
-      socket.on('joined_room', (data) => log('Joined room: ' + data.roomCode));
-      socket.on('user_joined', (data) => log(data.nickname + ' joined the room'));
-      socket.on('receive_message', (data) => log(data.nickname + ': ' + data.message));
-      socket.on('error', (err) => log('Error: ' + err.reason));
-    });
+      socket.on('connect', () => {
+        logMessage(`연결됨 (socket.id: ${socket.id})`);
+      });
 
-    document.getElementById('join').addEventListener('click', () => {
+      socket.on('joined_room', (data) => {
+        logMessage(` 방 입장: ${data.roomCode}`);
+      });
+
+      socket.on('user_joined', (data) => {
+        logMessage(` ${data.nickname} 님이 입장하셨습니다.`);
+      });
+
+      socket.on('receive_message', (data) => {
+        logMessage(` ${data.nickname}: ${data.message}`);
+      });
+
+      socket.on('error', (err) => {
+        logMessage(` 에러: ${err.reason || JSON.stringify(err)}`);
+      });
+
+      socket.on('disconnect', () => {
+        logMessage(' 연결 종료됨');
+      });
+    }
+
+    function joinRoom() {
       const roomCode = document.getElementById('roomCode').value;
       socket.emit('join_room', { roomCode });
-    });
 
-    document.getElementById('send').addEventListener('click', () => {
+      // 방 입장 시 기존 채팅 로그 불러오기 (HTTP API)
+      fetch(`http://localhost:3000/chat/logs?roomCode=${roomCode}`)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error('채팅 로그를 불러오지 못했습니다.');
+          }
+          return res.json();
+        })
+        .then(messages => {
+          const chatLog = document.getElementById('chatLog');
+          chatLog.innerHTML = ''; // 기존 내용 초기화
+
+          if (messages.length === 0) {
+            logMessage('채팅 기록이 없습니다.');
+            return;
+          }
+
+          messages.forEach(msg => {
+            logMessage(`${msg.nickname}: ${msg.message}`);
+          });
+        })
+        .catch(err => {
+          console.error('채팅 로그 가져오기 실패:', err);
+          logMessage(`채팅 로그를 불러오지 못했습니다: ${err.message}`);
+        });
+    }
+
+    function sendMessage() {
       const roomCode = document.getElementById('roomCode').value;
-      const message = document.getElementById('message').value;
-      socket.emit('send_message', { roomCode, message });
-    });
+      const message = document.getElementById('messageInput').value;
 
-    function log(msg) {
-      const logDiv = document.getElementById('log');
-      logDiv.innerHTML += '<div>' + msg + '</div>';
-      logDiv.scrollTop = logDiv.scrollHeight;
+      socket.emit('send_message', { roomCode, message });
+      document.getElementById('messageInput').value = '';
+    }
+
+    function logMessage(msg) {
+      const chatLog = document.getElementById('chatLog');
+      const div = document.createElement('div');
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
     }
   </script>
 </body>

@@ -6,13 +6,15 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { ChatService } from './chat.service';
 
 @WebSocketGateway({ cors: true })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
-  // 연결된 클라이언트 정보 저장 (key: socket.id)
   private clients: Map<string, { userId: string; nickname: string }> = new Map();
+
+  constructor(private readonly chatService: ChatService) {}
 
   /**
    * 클라이언트 연결 시 실행
@@ -39,23 +41,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * 방 입장 이벤트
-   * 클라이언트가 방 코드를 통해 채팅방에 참여
    */
   @SubscribeMessage('join_room')
   handleJoinRoom(client: Socket, data: { roomCode: string }) {
     const { roomCode } = data;
 
-    // 방 코드 유효성 검사 (예: 4자리 이상)
     if (!roomCode || roomCode.length < 4) {
       client.emit('error', { reason: 'Invalid room code' });
       return;
     }
 
-    // 방 입장
     client.join(roomCode);
     client.emit('joined_room', { roomCode });
 
-    // 방 내 다른 사용자에게 입장 알림
     client.to(roomCode).emit('user_joined', {
       nickname: this.clients.get(client.id)?.nickname,
     });
@@ -63,9 +61,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * 메시지 전송 이벤트
+   * → DB 저장 포함
    */
   @SubscribeMessage('send_message')
-  handleMessage(client: Socket, data: { roomCode: string; message: string }) {
+  async handleMessage(client: Socket, data: { roomCode: string; message: string }) {
     const { roomCode, message } = data;
     const user = this.clients.get(client.id);
 
@@ -79,12 +78,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    // 방 내 모든 사용자에게 메시지 전달
-    this.server.to(roomCode).emit('receive_message', {
+    const payload = {
       senderId: user.userId,
       nickname: user.nickname,
       message,
+      roomCode,
+    };
+
+    //  DB 저장
+    await this.chatService.saveMessage(payload);
+
+    //  메시지 브로드캐스트
+    this.server.to(roomCode).emit('receive_message', {
+      ...payload,
       timestamp: new Date(),
     });
+  }
+
+  /**
+   * 채팅 로그 조회
+   */
+  @SubscribeMessage('get_chat_logs')
+  async handleGetChatLogs(client: Socket, data: { roomCode: string }) {
+    const logs = await this.chatService.getMessages(data.roomCode);
+    client.emit('chat_logs', logs);
   }
 }
